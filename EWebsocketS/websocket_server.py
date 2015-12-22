@@ -7,11 +7,15 @@ from threading import Thread
 
 
 class Websocket(ESocketS.Socket):
-    def __init__(self, host='localhost', port=1234):
+    def __init__(self,
+                 port=ESocketS.Socket.__init__.__defaults__[0],
+                 host=ESocketS.Socket.__init__.__defaults__[1],
+                 clients_class=Connection):
+
         ESocketS.Socket.__init__(self,
                                  port=port,
                                  host=host,
-                                 clients_class=Connection,
+                                 clients_class=clients_class,
                                  auto_register=False)
 
         self.recv_handlers = {Connection.CONNECTING: self.handle_client_handshake,
