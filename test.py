@@ -1,33 +1,33 @@
 #!/bin/env python3
 import EWebsocketS
-import EWebsocketS.RFC6455 as RFC6455
+import logging, sys
+from websocket import create_connection
+
+root = logging.getLogger()
+root.setLevel(logging.DEBUG)
+
+ch = logging.StreamHandler(sys.stdout)
+ch.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+ch.setFormatter(formatter)
+root.addHandler(ch)
 
 
-class ws(EWebsocketS.Websocket):
+def handle_websocket_frame(client, frame):
+    print('Client: ', frame.payload,  frame.opcode)
+    client.send(frame.pack())
+    return True
 
-    def on_connect(self, fileno):
-        print(self.clients[fileno].getip(), 'Connected')
 
-    def on_client_open(self, fileno):
-        print(self.clients[fileno].getip(), 'Now in open state')
+def handle_new_connection(client, address):
+    print('Client connected')
+    return True
 
-    def on_start(self):
-        print('Started on: ', self.host, self.port)
-        
-    def on_normal_disconnect(self, fileno, reason):
-        print('Closed connection: ', reason)
-        del self.clients[fileno]
+server = EWebsocketS.Websocket(
+    handle_new_connection=handle_new_connection,
+    handle_websocket_frame=handle_websocket_frame
+)
 
-    def _on_abnormal_disconnect(self, fileno, msg):
-        print('Abnormal disconnect ', reason)
-
-    def on_text_recv(self, fileno, text):
-        frame = RFC6455.WSframe(opcode=RFC6455.OC.TEXT,
-                                payload=text)
-        frame.pack()
-        self.send(fileno, frame.frame)
-        print(text)
-        
-s = ws()
-s.start()
-
+print(server.server.host + ':' + str(server.server.port))
+client = create_connection('ws://' + server.server.host + ':' + str(server.server.port))
+client.send('hello\n', 8)
