@@ -6,11 +6,13 @@ import socket
 from .RFC6455 import *
 from .bytes_convert import *
 
+
 class Client:
     CONNECTING = 0
     OPEN = 1
     CLOSING = 2
     CLOSED = 3
+
     def __init__(self):
         self.state = self.CONNECTING
 
