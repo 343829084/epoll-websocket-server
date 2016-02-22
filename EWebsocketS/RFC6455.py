@@ -16,7 +16,7 @@ def masking_algorithm(data, key):
 
 
 #opcodes
-class OC:
+class OpCode:
     CONTINUATION = b'\x00'
     TEXT = b'\x01'
     BINARY = b'\x02'
@@ -58,14 +58,14 @@ class OC:
         if type(opcode) == int:
             opcode = int2bytes(opcode, 1)
 
-        if opcode in OC.opcodes.keys():
+        if opcode in OpCode.opcodes.keys():
             return True
         else:
             return False
 
 
 #statuscodes
-class SC:
+class StatusCode:
     NORMAL_CLOSE = b'\x03\xE8'  # Status code 1000
     ENDP_GOING_AWAY = b'\x03\xE9'  # Status code 1001
     PROTOCOL_ERROR = b'\x03\xEA'  # Status code 1002
@@ -99,14 +99,14 @@ class SC:
         if type(status_code) == int:
             status_code = int2bytes(status_code, 2)
 
-        if status_code in SC.status_codes:
+        if status_code in StatusCode.status_codes:
             return True
         else:
             return False
 
 
 class Frame:
-    def __init__(self, fin=None, rsv=None, opcode=None, mask=None, unmasked_payload=None,
+    def __init__(self, fin=1, rsv=(0,0,0), opcode=None, mask=None, payload_masked=None,
                  payload_len=None, payload_len_ext=None, payload=None, masking_key=None):
         self.fin = fin
         self.rsv = rsv
@@ -116,7 +116,8 @@ class Frame:
         self.payload_len_ext = payload_len_ext
         self.masking_key = masking_key
         self.payload = payload
-        self.unmasked_payload = unmasked_payload
+        self.payload_masked = payload_masked
+
 
     def pack(self):
 
@@ -142,23 +143,22 @@ class Frame:
         else:
             raise InvalidFrame('Payload too large')
 
-        if self.mask:
+        if self.mask and not self.payload_masked:
             self.mask_payload()
-        else:
-            masking_key = bytearray(0)
 
-        return bytes(frame_head + self.payload_len_ext + self.masking_key + self.payload)
+        return bytes(frame_head + payload_len_ext + self.masking_key or bytearray(0) + self.payload)
 
     def unmask_payload(self):
-        self.unmasked_payload = masking_algorithm(self.payload, self.masking_key)
+        self.payload_masked = False
+        self.payload = masking_algorithm(self.payload, self.masking_key)
+        return self.payload
 
     def mask_payload(self):
-        self.masking_key = int2bytes(randint(0, 2**32-1), 4)
-        if not self.unmasked_payload:
-            self.unmasked_payload = self.payload
-        self.payload = masking_algorithm(self.unmasked_payload, masking_key)
-
-
+        self.payload_masked = True
+        if not self.masking_key:
+            self.masking_key = int2bytes(randint(0, 2**32-1), 4)
+        self.payload = masking_algorithm(self.payload, self.masking_key)
+        return self.payload
 
 def pack_handshake(client_handshake):
     key = None
@@ -186,7 +186,7 @@ def read_frame_head(frame_head):
 
     frame.opcode = bytes(int2bytes(frame_head[0] & 0b00001111, 1))
 
-    if not OC.is_valid(frame.opcode):
+    if not OpCode.is_valid(frame.opcode):
         raise FrameError('Opcode: {} is not recognized'.format(frame.opcode))
 
     frame.mask = frame_head[1] >> 7

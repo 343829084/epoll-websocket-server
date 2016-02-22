@@ -14,7 +14,7 @@ root.addHandler(ch)
 
 
 def handle_websocket_frame(client, frame):
-    print('Client: ', frame.payload,  frame.opcode)
+    print('Client: ', frame.unmask_payload(),  EWebsocketS.OpCode.opcodes[frame.opcode])
     client.send(frame.pack())
     return True
 
@@ -25,10 +25,11 @@ def handle_new_connection(client, address):
 
 server = EWebsocketS.Websocket(
     handle_new_connection=handle_new_connection,
-    handle_websocket_frame=handle_websocket_frame
+    handle_websocket_frame=handle_websocket_frame,
+    esockets_kwargs={'max_subthreads': 10}
 )
 
 server.start()
 print(server.server.host + ':' + str(server.server.port))
 client = create_connection('ws://' + server.server.host + ':' + str(server.server.port))
-client.send('hello\n', 8)
+client.send('hello\n', 10)

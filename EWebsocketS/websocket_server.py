@@ -5,7 +5,7 @@ import socket
 import logging
 from .RFC6455 import *
 from .bytes_convert import *
-
+from threading import Lock, Condition
 
 class Client:
     CONNECTING = 0
@@ -13,10 +13,101 @@ class Client:
     CLOSING = 2
     CLOSED = 3
 
-    def __init__(self, address):
+    def __init__(self, socket, address):
+        self.socket = socket
         self.state = self.CONNECTING
         self.address = address
         self.close_frame_sent = False
+        self.close_frame_recv = False
+        self.send_lock = Lock()
+        self.close_lock = Condition()
+        self.unfinished_frame = None
+
+    def send(self, frame):
+        self.send_lock.acquire()
+        self.socket.sendall(frame)
+        self.send_lock.release()
+
+    def recv(self, size, forceAll=True):
+        data = self.socket.recv(size)
+        if data == b'':
+            raise ClientDisconnect
+
+        if forceAll and len(data) != size:
+            raise DataMissing('Expected to receive {} bytes but '
+                              'only found {} bytes in the buffer'.format(size, len(data)))
+        return data
+
+    def recv_frame(self):
+        frame_head = self.recv(2)
+        frame = read_frame_head(frame_head)
+
+        if frame.payload_len == 126:
+            payload_len = bytes2int(self.recv(2))
+        elif frame.payload_len == 127:
+            payload_len = bytes2int(self.recv(8))
+        else:
+            payload_len = frame.payload_len
+
+        if frame.mask:
+            frame.masking_key = self.recv(4)
+
+        frame.payload = self.recv(payload_len)
+
+        if frame.mask:
+            frame.unmask_payload()
+
+
+        # if frame.opcode == OpCode.CLOSE:
+        #     self.close_frame_recv = True
+        #     if self.close_frame_sent:
+        #         self.close_lock.release()
+        #
+        # else:
+
+        self._handle_frame(frame)
+        return frame
+
+    def _handle_frame(self, frame):
+        if frame.fin == 0:
+            logging.debug('A frame that is not the final frame was received')
+            if frame.opcode != OpCode.CONTINUATION:
+                self.unfinished_frame = frame
+            else:
+                self._continuation_frame(frame)
+        else:
+
+            if frame.opcode == OpCode.CONTINUATION:
+                self._continuation_frame(frame)
+                unfinished_frame = self.unfinished_frame
+                self.unfinished_frame = None # Clearing before recursion
+                self._handle_frame(unfinished_frame)
+
+            elif frame.opcode == OpCode.CLOSE:
+                self.close_frame_recv = True
+                if self.close_frame_sent:
+                    self.close_lock.release()
+
+
+    def _continuation_frame(self, frame):
+        if self.unfinished_frame:
+            self.unfinished_frame.payload += frame.payload
+        else:
+            logging.warning('A continuation frame was received without getting the first frame.')
+
+    def close(self, StatusCode=StatusCode.NORMAL_CLOSE, timeout=10):
+        if not self.close_frame_sent:
+            frame = Frame(opcode=OpCode.CLOSE,
+                          payload=StatusCode)
+            self.send(frame)
+            self.close_frame_sent = True
+
+        if not self.close_frame_recv:
+            if self.close_lock.acquire(timeout=10):
+
+
+
+
 
 
 class Websocket:
@@ -57,32 +148,11 @@ class Websocket:
                 return True
 
         elif client_obj.state == Client.OPEN:
-            frame_head = self._recv(client, 2)
-            frame = read_frame_head(frame_head)
-            if frame.payload_len == 126:
-                frame.payload_len_ext = bytes2int(self._recv(client, 2))
-            elif frame.payload_len == 127:
-                payload_len_ext = bytes2int(self._recv(client, 8))
-
-            if frame.mask:
-                frame.masking_key = self._recv(client, 4)
-
-            frame.payload = self._recv(client, frame.payload_len_ext or frame.payload_len)
-
-            if frame.mask:
-                frame.unmasked_payload = masking_algorithm()
 
 
+    def start(self):
+        self.server.start()
 
-    def _recv(self, client, size, forceAll=True):
-        data = client.recv(size)
-        if data == b'':
-            raise ClientDisconnect
-
-        if forceAll and len(data) != size:
-            raise DataMissing('Expected to receive {} bytes but '
-                              'only found {} bytes in the buffer'.format(size, len(data)))
-        return data
 
     def _send(self, client, data):
         return client.sendall(data)
