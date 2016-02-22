@@ -1,25 +1,39 @@
  #!/bin/env python3
 import ESocketS
-from EWebsocketS.connection import Connection
 import EWebsocketS.RFC6455 as RFC6455
-import socket
-from threading import Thread
+import threading
+from EWebsocketS.bytes_convert import *
+
+
+class _Client:
+    CONNECTING = 0
+    OPEN = 1
+    CLOSING = 2
+    CLOSED = 3
+
+    def __init__(self):
+        self._state = self.CONNECTING
+        self._fragments = [b'', b'']
+
+    def set_state(self, state):
+        if state in range(4):
+            self._state = state
+        else:
+            raise ValueError('{} is not a recognized state'.format(state))
+
+    def get_state(self):
+        return self._state
 
 
 class Websocket(ESocketS.Socket):
-    def __init__(self,
-                 port=ESocketS.Socket.__init__.__defaults__[0],
-                 host=ESocketS.Socket.__init__.__defaults__[1],
-                 clients_class=Connection):
+    def __init__(self, **kwargs):
 
-        ESocketS.Socket.__init__(self,
-                                 port=port,
-                                 host=host,
-                                 clients_class=clients_class,
-                                 auto_register=False)
+        ESocketS.Socket.__init__(self, **kwargs)
 
-        self.recv_handlers = {Connection.CONNECTING: self.handle_client_handshake,
-                              Connection.OPEN: self.handle_websocket_frame}
+
+
+        self.recv_handlers = {_Client.CONNECTING: self.handle_client_handshake,
+                              _Client.OPEN: self.handle_websocket_frame}
 
         self.websocket_frame_handlers = {RFC6455.OC.CONTINUATION: self.handle_continuation,
                                          RFC6455.OC.TEXT: self.handle_text,
@@ -28,10 +42,9 @@ class Websocket(ESocketS.Socket):
                                          RFC6455.OC.PING: self.handle_ping,
                                          RFC6455.OC.PONG: self.handle_pong }
 
-    # ------------------- ESocketS "on" functions --------------------
-    def on_recv(self, fileno, data):
-        self.recv_handlers[self.clients[fileno].state](fileno, data)
+        self._clients = {}
 
+    # ------------------- ESocketS "on" functions --------------------
     def on_disconnect(self, fileno):
         self.close(fileno)
         self._on_abnormal_disconnect(fileno, 'Received empty bytearray')
@@ -41,7 +54,30 @@ class Websocket(ESocketS.Socket):
         self._on_abnormal_disconnect(fileno, msg)
     # ----------------------------------------------------------------
 
+
     # ------------------- recv handlers ------------------------------
+
+    def _recv_websocket_frame(self, conn):
+        head = self.recv_raw(conn, 2)
+        payload_len = head[1] & 0b01111111
+        mask =  head[1] & 0b10000000
+        if payload_len == 126:
+            payload_len = bytes2int(self.recv_raw(conn, 2))
+        elif payload_len == 127:
+            payload_len = bytes2int(self.recv_raw(conn, 8))
+
+        if mask:
+            mask_key = self.recv_raw(conn, 4)
+        else:
+            mask_key = b''
+
+        payload = self.recv_raw(conn, payload_len)
+
+        return
+        self.handle_websocket_frame(conn, )
+
+        return
+
     def handle_client_handshake(self, fileno, handshake):
         try:
             handshake_responce = RFC6455.pack_handshake(handshake)
