@@ -106,46 +106,58 @@ class SC:
 
 
 class Frame:
-    def __init__(self, FIN, RSV, opcode, mask, payload, masking_key=None):
-        self.FIN = FIN
-        self.RSV = RSV
+    def __init__(self, fin=None, rsv=None, opcode=None, mask=None, unmasked_payload=None,
+                 payload_len=None, payload_len_ext=None, payload=None, masking_key=None):
+        self.fin = fin
+        self.rsv = rsv
         self.opcode = opcode
         self.mask = mask
+        self.payload_len = payload_len
+        self.payload_len_ext = payload_len_ext
         self.masking_key = masking_key
         self.payload = payload
+        self.unmasked_payload = unmasked_payload
 
     def pack(self):
 
         frame_head = bytearray(2)
-        frame_head[0] = self.FIN << 7
-        frame_head[0] |= self.RSV[0] << 6
-        frame_head[0] |= self.RSV[1] << 5
-        frame_head[0] |= self.RSV[2] << 4
+        frame_head[0] = self.fin << 7
+        frame_head[0] |= self.rsv[0] << 6
+        frame_head[0] |= self.rsv[1] << 5
+        frame_head[0] |= self.rsv[2] << 4
         frame_head[0] |= bytes2int(self.opcode)
 
         frame_head[1] = self.mask << 7
 
         payload_len = len(self.payload)
         if payload_len < 126:
-            payload_ext = bytearray(0)
+            payload_len_ext = bytearray(0)
             frame_head[1] |= payload_len
         elif payload_len < 65536:
-            payload_ext = int2bytes(payload_len, 2)
+            payload_len_ext = int2bytes(payload_len, 2)
             frame_head[1] |= 126
         elif payload_len < 18446744073709551616:
-            payload_ext = int2bytes(payload_len, 8)
+            payload_len_ext = int2bytes(payload_len, 8)
             frame_head[1] |= 127
         else:
             raise InvalidFrame('Payload too large')
 
         if self.mask:
-            masking_key = int2bytes(randint(0, 2**32-1), 4)
-            payload = masking_algorithm(self.payload, masking_key)
+            self.mask_payload()
         else:
             masking_key = bytearray(0)
-            payload = self.payload
 
-        return bytes(frame_head + payload_ext + masking_key + payload)
+        return bytes(frame_head + self.payload_len_ext + self.masking_key + self.payload)
+
+    def unmask_payload(self):
+        self.unmasked_payload = masking_algorithm(self.payload, self.masking_key)
+
+    def mask_payload(self):
+        self.masking_key = int2bytes(randint(0, 2**32-1), 4)
+        if not self.unmasked_payload:
+            self.unmasked_payload = self.payload
+        self.payload = masking_algorithm(self.unmasked_payload, masking_key)
+
 
 
 def pack_handshake(client_handshake):
@@ -165,3 +177,18 @@ def pack_handshake(client_handshake):
     return handshake
 
 
+def read_frame_head(frame_head):
+    frame = Frame()
+    frame.fin = frame_head[0] >> 7
+    frame.rsv = (frame_head[0] >> 6 & 0b00000001,
+                 frame_head[0] >> 5 & 0b00000001,
+                 frame_head[0] >> 4 & 0b00000001)
+
+    frame.opcode = bytes(int2bytes(frame_head[0] & 0b00001111, 1))
+
+    if not OC.is_valid(frame.opcode):
+        raise FrameError('Opcode: {} is not recognized'.format(frame.opcode))
+
+    frame.mask = frame_head[1] >> 7
+    frame.payload_len = frame_head[1] & 0b01111111
+    return frame

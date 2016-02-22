@@ -28,6 +28,7 @@ server = EWebsocketS.Websocket(
     handle_websocket_frame=handle_websocket_frame
 )
 
+server.start()
 print(server.server.host + ':' + str(server.server.port))
 client = create_connection('ws://' + server.server.host + ':' + str(server.server.port))
 client.send('hello\n', 8)
