@@ -1,13 +1,13 @@
 #!/bin/env python3
 from random import randint
 import base64, hashlib
-from EWebsocketS.bytes_convert import bytes2int, int2bytes
-
+from .bytes_convert import *
+from .exceptions import *
 
 GUID = b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+
+
 def masking_algorithm(data, key):
-    # data -- byte array
-    # key -- byte array -- len(key)=4
     length = len(data)
     result = bytearray(length)
     for i in range(length):
@@ -35,11 +35,33 @@ class OC:
     RESERVED_CONTROL_4 = b'\x0E'
     RESERVED_CONTROL_5 = b'\x0F'
 
+    opcodes = {CONTINUATION: 'continuation',
+               TEXT: 'text',
+               BINARY: 'binary',
+               RESERVED_NON_CONTROL_1: 'reserved non control 1',
+               RESERVED_NON_CONTROL_2: 'reserved non control 2',
+               RESERVED_NON_CONTROL_3: 'reserved non control 3',
+               RESERVED_NON_CONTROL_4: 'reserved non control 4',
+               RESERVED_NON_CONTROL_5: 'reserved non control 5',
+               RESERVED_NON_CONTROL_6: 'reserved non control 6',
+               CLOSE: 'close',
+               PING: 'ping',
+               PONG: 'pong',
+               RESERVED_CONTROL_1: 'reserved control 1',
+               RESERVED_CONTROL_2: 'reserved control 2',
+               RESERVED_CONTROL_3: 'reserved control 3',
+               RESERVED_CONTROL_4: 'reserved control 4',
+               RESERVED_CONTROL_5: 'reserved control 5'}
+
     @staticmethod
-    def genall():
-        for key, value in OC.__dict__.items():
-            if type(value) == bytes:
-                yield value
+    def is_valid(opcode):
+        if type(opcode) == int:
+            opcode = int2bytes(opcode, 1)
+
+        if opcode in OC.opcodes.keys():
+            return True
+        else:
+            return False
 
 
 #statuscodes
@@ -58,142 +80,72 @@ class SC:
     UNEXPECTED_CONDITION = b'\x03\xF3'  # Status code 1011
     TLS_HANDSHAKE_ERROR = b'\x03\xF7'  # Status code 1015
 
+    status_codes = {NORMAL_CLOSE: 'Normal close',
+                    ENDP_GOING_AWAY: 'Endpoint going away',
+                    PROTOCOL_ERROR: 'Protocol error',
+                    DATA_ACCEPT_ERROR: 'Data accept error',
+                    RESERVED_STATUS_CODE_1004: 'Reserved status code',
+                    RESERVED_STATUS_CODE_1005: 'Reserved status code',
+                    RESERVED_STATUS_CODE_1006: 'Reserved status code',
+                    DATA_TYPE_ERROR: 'Data type error',
+                    POLICY_VIOLATION: 'Policy violation',
+                    MESSAGE_TOO_BIG: 'Message too big',
+                    CLIENT_EXTENSION_ERROR: 'Client extension error',
+                    UNEXPECTED_CONDITION: 'Unexpected condition',
+                    TLS_HANDSHAKE_ERROR: 'TLS handshake error'}
+
     @staticmethod
-    def genall():
-        for key, value in SC.__dict__.items():
-            if type(value) == bytes:
-                yield value
+    def is_valid(status_code):
+        if type(status_code) == int:
+            status_code = int2bytes(status_code, 2)
 
-
-class WSframe:
-    def __init__(self, frame=None,
-                 FIN=1,
-                 RSV=[0, 0, 0],
-                 opcode=None,
-                 masking=0,
-                 payload=None,
-                 pre_test = True):
-
-        self.FIN, self.RSV, self.opcode = FIN, RSV, opcode
-        self.masking, self.payload = masking, payload
-        self.frame = frame
-        self.pre_test = pre_test
-        self.rest = b''
-
-    def pre_pack_check(self):
-        if self.opcode not in OC.genall():
-            return False, 'Opcode needs to be a recognized bytes object (use the opcodes provided in the RFC6455.OC class)'
-        elif self.FIN not in [0, 1]:
-            return False, 'FIN bit needs to be 0 or 1'
-        elif type(self.RSV) != list or (type(self.RSV) == list and len(self.RSV) != 3):
-            return False, 'RSV needs to be a list of length 3'
-        elif self.RSV[0] not in [0, 1] or self.RSV[1] not in [0, 1] or self.RSV[2] not in [0, 1]:
-            return False, 'Entrys in RSV needs to be either 1 or 0'
-        elif self.masking not in [0, 1]:
-            return False, 'Masking neeeds to be either 1 or 0'
-        elif type(self.payload) != bytes:
-            return False, 'Payload needs to be a bytes object'
+        if status_code in SC.status_codes:
+            return True
         else:
-            return True, ''
+            return False
 
-    def pre_unpack_check(self):
-        if type(self.frame) != bytes:
-            return False, 'The frame needs to be a bytes object'
-        elif len(self.frame) < 3:
-            return False, 'The websocket frame can not be smaller than two bytes'
-        else:
-            return True, ''
+
+class Frame:
+    def __init__(self, FIN, RSV, opcode, mask, payload, masking_key=None):
+        self.FIN = FIN
+        self.RSV = RSV
+        self.opcode = opcode
+        self.mask = mask
+        self.masking_key = masking_key
+        self.payload = payload
 
     def pack(self):
-        if self.pre_test:
-            passtest, message = self.pre_pack_check()
-            if not passtest:
-                raise RFC6455Error(message)
+
+        frame_head = bytearray(2)
+        frame_head[0] = self.FIN << 7
+        frame_head[0] |= self.RSV[0] << 6
+        frame_head[0] |= self.RSV[1] << 5
+        frame_head[0] |= self.RSV[2] << 4
+        frame_head[0] |= bytes2int(self.opcode)
+
+        frame_head[1] = self.mask << 7
 
         payload_len = len(self.payload)
         if payload_len < 126:
             payload_ext = bytearray(0)
+            frame_head[1] |= payload_len
         elif payload_len < 65536:
             payload_ext = int2bytes(payload_len, 2)
-            payload_len = 126
+            frame_head[1] |= 126
         elif payload_len < 18446744073709551616:
             payload_ext = int2bytes(payload_len, 8)
-            payload_len = 127
+            frame_head[1] |= 127
         else:
-            raise RFC6455Error('Payload too large')
+            raise InvalidFrame('Payload too large')
 
-        if self.masking:
+        if self.mask:
             masking_key = int2bytes(randint(0, 2**32-1), 4)
             payload = masking_algorithm(self.payload, masking_key)
         else:
             masking_key = bytearray(0)
+            payload = self.payload
 
-        frame_head = bytearray(2)
-        frame_head[0] = (self.FIN << 7) | (self.RSV[0] << 6) | (self.RSV[1] << 5) | (self.RSV[2] << 4) | bytes2int(self.opcode)
-        frame_head[1] = (self.masking << 7) | payload_len
-        self.frame = bytes(frame_head + payload_ext + masking_key + self.payload)
-        return self.frame
-
-    def unpack(self):
-        """
-        Unpacks the websocket frame and returns
-        FIN, [RSV1, RSV2, RSV3], opcode, payload, rest
-        Where rest is any bytes that is not within the first websocket frame
-        This makes it so that the user can iterate through a bytes string containing
-        one or more websocket frames
-        If data is missing from a frame an RFC6455Error exception will be thrown
-        """
-        try:
-            frame = self.frame
-            if self.pre_test:
-                passtest, message = self.pre_unpack_check()
-                if not passtest:
-                    raise RFC6455Error(message)
-
-
-            i = 0  # i is the number of interpreted frame bytes
-            FIN = frame[i] >> 7
-            RSV1 = frame[i] >> 6 & 0b00000001
-            RSV2 = frame[i] >> 5 & 0b00000001
-            RSV3 = frame[i] >> 4 & 0b00000001
-            opcode = bytes(int2bytes(frame[i] & 0b00001111, 1))
-
-            if opcode not in OC.genall():
-                raise InvalidFrame('Opcode is not recognized')
-
-            i += 1
-            mask = frame[i] >> 7
-            payload_len = frame[i] & 0b01111111
-
-            i += 1
-            if payload_len == 126:
-                payload_len = bytes2int(frame[i:i+2])
-                i += 2
-            elif payload_len == 127:
-                payload_len = bytes2int(frame[i:i+8])
-                i += 8
-
-            if mask:
-                masking_key = frame[i:i+4]
-                i += 4
-
-            payload = frame[i:i+payload_len]
-            i += payload_len
-
-            frame[i-1]  # just to trigger error if frame to short
-
-            if mask:
-                payload = masking_algorithm(payload, masking_key)
-
-            rest = frame[i:-1]
-
-            self.FIN, self.RSV, self.opcode = FIN, [RSV1, RSV2, RSV3], opcode
-            self.masking, self.payload = mask, payload
-            self.rest = rest
-
-            return payload_len, FIN, [RSV1, RSV2, RSV3], opcode, payload, rest
-        except IndexError:
-            raise InvalidFrame('Parts of the frame is missing')
+        return bytes(frame_head + payload_ext + masking_key + payload)
 
 
 def pack_handshake(client_handshake):
@@ -202,7 +154,7 @@ def pack_handshake(client_handshake):
         if b'Sec-WebSocket-Key:' in line:
             key = line.split(b': ')[1]
     if key is None:
-        raise RFC6455Error('Did not find websocket key in handshake')
+        raise DataMissing('Did not find websocket key in handshake')
 
     handshake = b'HTTP/1.1 101 Switching Protocols\r\n'
     handshake += b'Upgrade: websocket\r\n'
@@ -210,31 +162,6 @@ def pack_handshake(client_handshake):
     handshake += b'Sec-WebSocket-Accept: '
     handshake += base64.b64encode(hashlib.sha1(key+GUID).digest())
     handshake += b'\r\n\r\n'
-
     return handshake
 
 
-class RFC6455Error(Exception):
-    pass
-
-
-class DataMissing(Exception):
-    pass
-
-class InvalidFrame(Exception):
-    pass
-
-if __name__ == '__main__':
-    test_frame = WSframe(opcode=OC.PONG, payload='hello')
-    print(test_frame)
-    test_frame.pack()
-    test_frame.unpack()
-    print(test_frame.frame)
-    print(test_frame)
-    h = b'HTTP/1.1 101 Switching Protocols\r\n'
-    h += b'Upgrade: websocket\r\n'
-    h += b'Connection: Upgrade\r\n'
-    h += b'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=='
-    h += b'\r\n\r\n'
-
-    print(pack_handshake(h))
