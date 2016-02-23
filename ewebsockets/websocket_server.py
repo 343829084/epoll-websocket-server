@@ -23,6 +23,8 @@ class Websocket:
         self.clients = {}
 
     def _handle_incoming(self, sock, address):
+        """The esockets required function for handling incoming client connections
+        """
         client = Client(sock, address)
         if self.handle_new_connection(client):
             self.clients[sock] = client
@@ -30,6 +32,8 @@ class Websocket:
         return False
 
     def _handle_readable(self, sock):
+        """The esockets required function for handling incoming data from clients
+        """
         client_obj = self.clients[sock]
         if client_obj.state == Client.CONNECTING:
             handshake = client_obj.recv(4096)
@@ -46,21 +50,25 @@ class Websocket:
                     logging.debug('{}: Handshake complete, client now in open state'.format(client_obj.address))
                     return True
                 else:
-                    logging.warning('{}: Handshake failed, {}/{} bytes of the response sent'.format(client_obj.address, total_sent, len(response)))
+                    logging.warning('{}: Handshake failed, {}/{} bytes of the response sent'.format(client_obj.address,
+                                                                                                    total_sent,
+                                                                                                    len(response)))
                     return False
 
-        elif client_obj.state == Client.OPEN:
+        elif client_obj.state == Client.OPEN or client_obj.state == Client.CLOSING:
             frame = client_obj.recv_frame()
-            frame.mask = 1
-            print('FRAME: ', frame.pack())
-            self.handle_websocket_frame(client_obj, frame)
+            if frame.fin == 1:
+                # Let the user handle a finished frame
+                self.handle_websocket_frame(client_obj, frame)
+
             if frame.opcode == OpCode.CLOSE:
                 return False
             else:
                 return True
 
+
     def start(self):
         self.server.start()
 
-    def _send(self, client, data):
-        return client.sendall(data)
+    def clients_list(self):
+        return list(self.clients.values())
