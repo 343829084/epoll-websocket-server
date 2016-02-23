@@ -1,8 +1,8 @@
 #!/bin/env python3
 
 from threading import Lock, Condition
-from EWebsocketS.exceptions import *
-from EWebsocketS.RFC6455 import *
+from .exceptions import *
+from .RFC6455 import *
 import logging
 import socket
 
@@ -121,7 +121,7 @@ class Client:
         if not self.close_frame_sent:
             frame = Frame(opcode=OpCode.CLOSE,
                           payload=status_code)
-            self.send(frame)
+            self.send(frame.pack())
             self.close_frame_sent = True
             self.state = self.CLOSING
 

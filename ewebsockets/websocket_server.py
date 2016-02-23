@@ -1,12 +1,10 @@
 #!/bin/env python3
 
 import esockets
-import socket
 import logging
 from .RFC6455 import *
-from .bytes_convert import *
-from threading import Lock, Condition
-from .ClientSocket import *
+from .ClientSocket import Client
+
 
 class Websocket:
     def __init__(self,

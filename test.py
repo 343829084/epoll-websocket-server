@@ -1,5 +1,5 @@
 #!/bin/env python3
-import EWebsocketS
+import ewebsockets
 import logging, sys
 from websocket import create_connection
 
@@ -23,7 +23,7 @@ def handle_new_connection(client):
     print('Client connected')
     return True
 
-server = EWebsocketS.Websocket(
+server = ewebsockets.Websocket(
     handle_new_connection=handle_new_connection,
     handle_websocket_frame=handle_websocket_frame,
     esockets_kwargs={'max_subthreads': 10}

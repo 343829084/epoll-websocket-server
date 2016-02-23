@@ -1,0 +1,2 @@
+include ewebsockets/version
+include README.rst
