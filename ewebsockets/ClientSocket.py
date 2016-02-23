@@ -12,6 +12,11 @@ class Client:
     CLOSING = 2
     CLOSED = 3
 
+    _states = {CONNECTING: 'Connecting',
+               OPEN: 'Open',
+               CLOSING: 'Closing',
+               CLOSED: 'Closed'}
+
     def __init__(self, socket, address, state=0):
         self.socket = socket
         self.state = state
@@ -89,7 +94,6 @@ class Client:
                 self.unfinished_frame = frame
             else:
                 self._continuation_frame(frame)
-            return -1
         else:
 
             if frame.opcode == OpCode.CONTINUATION:
@@ -136,6 +140,8 @@ class Client:
         self.state = self.CLOSED
 
 
+    def get_state(self):
+        return self._states[self.state]
 
 
 
