@@ -106,8 +106,8 @@ class StatusCode:
 
 
 class Frame:
-    def __init__(self, fin=1, rsv=(0,0,0), opcode=None, mask=None, payload_masked=None,
-                 payload_len=None, payload_len_ext=None, payload=None, masking_key=None):
+    def __init__(self, fin=1, rsv=(0,0,0), opcode=None, mask=0, payload_masked=None,
+                 payload_len=0, payload_len_ext=None, payload=b'', masking_key=b''):
         self.fin = fin
         self.rsv = rsv
         self.opcode = opcode
@@ -117,7 +117,6 @@ class Frame:
         self.masking_key = masking_key
         self.payload = payload
         self.payload_masked = payload_masked
-
 
     def pack(self):
 
@@ -143,22 +142,22 @@ class Frame:
         else:
             raise InvalidFrame('Payload too large')
 
-        if self.mask and not self.payload_masked:
-            self.mask_payload()
+        if self.mask:
+            if self.payload_masked is None:
+                self.update_masking()
+            return bytes(frame_head + payload_len_ext + self.masking_key or bytearray(0) + self.payload_masked)
 
-        return bytes(frame_head + payload_len_ext + self.masking_key or bytearray(0) + self.payload)
+        return bytes(frame_head + payload_len_ext + self.payload)
 
     def unmask_payload(self):
-        self.payload_masked = False
-        self.payload = masking_algorithm(self.payload, self.masking_key)
+        self.payload = masking_algorithm(self.payload_masked, self.masking_key)
         return self.payload
 
-    def mask_payload(self):
-        self.payload_masked = True
-        if not self.masking_key:
+    def update_masking(self, new_key=True):
+        if new_key:
             self.masking_key = int2bytes(randint(0, 2**32-1), 4)
-        self.payload = masking_algorithm(self.payload, self.masking_key)
-        return self.payload
+        self.payload_masked = masking_algorithm(self.payload, self.masking_key)
+
 
 def pack_handshake(client_handshake):
     key = None

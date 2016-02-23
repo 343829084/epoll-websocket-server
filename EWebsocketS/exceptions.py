@@ -10,3 +10,4 @@ class ClientDisconnect(Exception):
 
 class FrameError(Exception):
     pass
+
