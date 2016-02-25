@@ -36,24 +36,7 @@ class Websocket:
         """
         client_obj = self.clients[sock]
         if client_obj.state == Client.CONNECTING:
-            handshake = client_obj.recv(4096)
-            logging.debug('{}: Received handshake'.format(client_obj.address))
-            try:
-                response = pack_handshake(handshake)
-            except DataMissing:
-                logging.warning('{}: Received unaccepted handshake'.format(client_obj.address))
-                return False
-            else:
-                total_sent = client_obj.send(response, timeout=10)
-                if total_sent == len(response):
-                    client_obj.state = Client.OPEN
-                    logging.debug('{}: Handshake complete, client now in open state'.format(client_obj.address))
-                    return True
-                else:
-                    logging.warning('{}: Handshake failed, {}/{} bytes of the response sent'.format(client_obj.address,
-                                                                                                    total_sent,
-                                                                                                    len(response)))
-                    return False
+            return client_obj.do_handshake()
 
         elif client_obj.state == Client.OPEN or client_obj.state == Client.CLOSING:
             frame = client_obj.recv_frame()
@@ -66,7 +49,6 @@ class Websocket:
                 return False
             else:
                 return True
-
 
     def start(self):
         self.server.start()

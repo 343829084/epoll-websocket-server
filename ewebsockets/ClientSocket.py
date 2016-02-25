@@ -5,6 +5,7 @@ from .exceptions import *
 from .RFC6455 import *
 import logging
 
+
 class Client:
     CONNECTING = 0
     OPEN = 1
@@ -22,11 +23,10 @@ class Client:
         self.state = state
         self.address = address
         self.close_frame_sent = False
-        self.close_frame_recv = False
+        self.close_frame_recd = False
         self.send_lock = Lock()
         self.close_lock = Event()
         self.unfinished_frame = None
-        self._send_threads_obj=send_threads_obj
 
     def send_raw(self, msg, timeout=-1):
         total_sent = 0
@@ -42,9 +42,9 @@ class Client:
                 self.send_lock.release()
         return total_sent
 
-    def send(self, msg, timeout=-1):
-        self._send_threads_obj.start_thread(target=self._send,
-                                            args=(msg, timeout))
+    # def send_raw(self, msg, timeout=-1):
+    #     self._max_threads_obj.start_thread(target=self._send,
+    #                                        args=(msg, timeout))
 
     def do_handshake(self):
         """
@@ -147,14 +147,14 @@ class Client:
                 self.unfinished_frame = None
 
             elif frame.opcode == OpCode.CLOSE:
-                self.close_frame_recv = True
+                self.close_frame_recd = True
                 self.close_lock.set()
                 if not self.close_frame_sent:
-                    self.close()
+                    self.close(status_code=frame.payload)
             elif frame.opcode == OpCode.PING:
                 pong_frame = Frame(opcode=OpCode.PONG,
                                    payload=frame.payload).pack()
-                self.send(pong_frame, 10)
+                self.send_frame(pong_frame, 10)
 
     def _continuation_frame(self, frame):
         if self.unfinished_frame is not None:
@@ -167,7 +167,7 @@ class Client:
         if not self.close_frame_sent:
             frame = Frame(opcode=OpCode.CLOSE,
                           payload=status_code)
-            self.send(frame.pack())
+            self.send_frame(frame)
             self.close_frame_sent = True
 
         if not self.close_lock.wait(timeout=timeout):

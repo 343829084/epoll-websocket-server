@@ -16,7 +16,7 @@ root.addHandler(ch)
 def handle_websocket_frame(client, frame):
     frame.mask = 0
     print(client.address, ': ', frame.payload)
-    client.send(frame.pack())
+    client.send_frame(frame)
     # client.close()
     return True
 
@@ -28,8 +28,9 @@ def handle_new_connection(client):
 server = ewebsockets.Websocket(
     handle_new_connection=handle_new_connection,
     handle_websocket_frame=handle_websocket_frame,
-    esockets_kwargs={'max_subthreads': 10,
-                     'host': 'localhost'}
+    esockets_kwargs={'max_subthreads': 10}
+        # ,
+        #              'host': 'localhost'}
 )
 
 
