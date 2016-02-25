@@ -17,6 +17,7 @@ def handle_websocket_frame(client, frame):
     frame.mask = 0
     print(client.address, ': ', frame.payload)
     client.send(frame.pack())
+    # client.close()
     return True
 
 

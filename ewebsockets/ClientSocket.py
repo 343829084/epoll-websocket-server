@@ -1,10 +1,9 @@
 #!/bin/env python3
 
-from threading import Lock, Condition
+from threading import Lock, Event
 from .exceptions import *
 from .RFC6455 import *
 import logging
-import socket
 
 class Client:
     CONNECTING = 0
@@ -17,18 +16,19 @@ class Client:
                CLOSING: 'Closing',
                CLOSED: 'Closed'}
 
-    def __init__(self, socket, address, send_threads_obj, state=0):
-        self.socket = socket
+    def __init__(self, sock, address, state=0):
+        self.socket = sock
+
         self.state = state
         self.address = address
         self.close_frame_sent = False
         self.close_frame_recv = False
         self.send_lock = Lock()
-        self.close_lock = Condition()
+        self.close_lock = Event()
         self.unfinished_frame = None
         self._send_threads_obj=send_threads_obj
 
-    def _send(self, msg, timeout=-1):
+    def send_raw(self, msg, timeout=-1):
         total_sent = 0
         if self.send_lock.acquire(timeout=timeout):
             try:
@@ -58,7 +58,7 @@ class Client:
             logging.warning('{}: Received unaccepted handshake'.format(self.address))
             return False
         else:
-            total_sent = self._send(response, timeout=10)
+            total_sent = self.send_raw(response, timeout=10)
             if total_sent == len(response):
                 self.state = Client.OPEN
                 logging.debug('{}: Handshake complete, client now in open state'.format(self.address))
@@ -68,6 +68,21 @@ class Client:
                                                                                                 total_sent,
                                                                                                 len(response)))
                 return False
+
+    def send_frame(self, frame, timeout=-1):
+        self.send_raw(frame.pack(), timeout)
+
+    def send_text(self, text, timeout=-1, mask=0):
+        frame = Frame(payload=text.encode(),
+                      opcode=OpCode.TEXT,
+                      mask=mask)
+        self.send_frame(frame, timeout)
+
+    def send_binary(self, bytes, timeout=-1, mask=0):
+        frame = Frame(payload=bytes,
+                      opcode=OpCode.BINARY,
+                      mask=mask)
+        self.send_frame(frame, timeout)
 
     def recv_all(self, size, chunk_size=2048):
         data = bytearray(size)
@@ -133,10 +148,8 @@ class Client:
 
             elif frame.opcode == OpCode.CLOSE:
                 self.close_frame_recv = True
-                if self.close_frame_sent:
-                    with self.close_lock:
-                        self.close_lock.notify_all()
-                else:
+                self.close_lock.set()
+                if not self.close_frame_sent:
                     self.close()
             elif frame.opcode == OpCode.PING:
                 pong_frame = Frame(opcode=OpCode.PONG,
@@ -150,23 +163,21 @@ class Client:
             logging.warning('{}: A continuation frame was received without getting the first frame.'.format(self.address))
 
     def close(self, status_code=StatusCode.NORMAL_CLOSE, timeout=10):
+        self.state = self.CLOSING
         if not self.close_frame_sent:
             frame = Frame(opcode=OpCode.CLOSE,
                           payload=status_code)
             self.send(frame.pack())
             self.close_frame_sent = True
-            self.state = self.CLOSING
 
-        if not self.close_frame_recv:
-            self.state = self.CLOSING
-            with self.close_lock:
-                self.close_lock.wait(timeout=timeout)
+        if not self.close_lock.wait(timeout=timeout):
+            print('TIMED OUT')
 
+        self.close_lock.clear()
         # logging.debug('Closing connection: {}'.format(self.address))
         # self.socket.shutdown(socket.SHUT_RDWR)
         # self.socket.close()
         self.state = self.CLOSED
-
 
     def get_state(self):
         return self._states[self.state]

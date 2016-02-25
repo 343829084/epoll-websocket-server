@@ -62,6 +62,7 @@ class Websocket:
                 self.handle_websocket_frame(client_obj, frame)
 
             if frame.opcode == OpCode.CLOSE:
+                del self.clients[sock]
                 return False
             else:
                 return True

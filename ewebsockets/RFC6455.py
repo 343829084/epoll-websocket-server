@@ -4,8 +4,6 @@ import base64, hashlib
 from .bytes_convert import *
 from .exceptions import *
 
-GUID = b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
-
 
 def masking_algorithm(data, key):
     length = len(data)
@@ -159,6 +157,9 @@ class Frame:
         self.payload_masked = masking_algorithm(self.payload, self.masking_key)
 
 
+guid = b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+
+
 def pack_handshake(client_handshake):
     key = None
     for line in client_handshake.splitlines():
@@ -171,23 +172,31 @@ def pack_handshake(client_handshake):
     handshake += b'Upgrade: websocket\r\n'
     handshake += b'Connection: Upgrade\r\n'
     handshake += b'Sec-WebSocket-Accept: '
-    handshake += base64.b64encode(hashlib.sha1(key+GUID).digest())
+    handshake += base64.b64encode(hashlib.sha1(key+guid).digest())
     handshake += b'\r\n\r\n'
     return handshake
 
 
 def read_frame_head(frame_head):
-    frame = Frame()
-    frame.fin = frame_head[0] >> 7
-    frame.rsv = (frame_head[0] >> 6 & 0b00000001,
-                 frame_head[0] >> 5 & 0b00000001,
-                 frame_head[0] >> 4 & 0b00000001)
-
-    frame.opcode = bytes(int2bytes(frame_head[0] & 0b00001111, 1))
+    frame = Frame(
+        fin=frame_head[0] >> 7,
+        rsv=(frame_head[0] >> 6 & 0b00000001,
+             frame_head[0] >> 5 & 0b00000001,
+             frame_head[0] >> 4 & 0b00000001),
+        opcode=bytes(int2bytes(frame_head[0] & 0b00001111, 1)),
+        mask=frame_head[1] >> 7,
+        payload_len=frame_head[1] & 0b01111111
+    )
+    # frame.fin = frame_head[0] >> 7
+    # frame.rsv = (frame_head[0] >> 6 & 0b00000001,
+    #              frame_head[0] >> 5 & 0b00000001,
+    #              frame_head[0] >> 4 & 0b00000001)
+    #
+    # frame.opcode = bytes(int2bytes(frame_head[0] & 0b00001111, 1))
 
     if not OpCode.is_valid(frame.opcode):
         raise FrameError('Opcode: {} is not recognized'.format(frame.opcode))
 
-    frame.mask = frame_head[1] >> 7
-    frame.payload_len = frame_head[1] & 0b01111111
+    # frame.mask = frame_head[1] >> 7
+    # frame.payload_len = frame_head[1] & 0b01111111
     return frame
