@@ -17,7 +17,7 @@ class Client:
                CLOSING: 'Closing',
                CLOSED: 'Closed'}
 
-    def __init__(self, socket, address, state=0):
+    def __init__(self, socket, address, send_threads_obj, state=0):
         self.socket = socket
         self.state = state
         self.address = address
@@ -26,8 +26,9 @@ class Client:
         self.send_lock = Lock()
         self.close_lock = Condition()
         self.unfinished_frame = None
+        self._send_threads_obj=send_threads_obj
 
-    def send(self, msg, timeout=-1):
+    def _send(self, msg, timeout=-1):
         total_sent = 0
         if self.send_lock.acquire(timeout=timeout):
             try:
@@ -40,6 +41,33 @@ class Client:
             finally:
                 self.send_lock.release()
         return total_sent
+
+    def send(self, msg, timeout=-1):
+        self._send_threads_obj.start_thread(target=self._send,
+                                            args=(msg, timeout))
+
+    def do_handshake(self):
+        """
+        :return:True/False (Success/Failed handshake)
+        """
+        client_handshake = self.recv(4096)
+        logging.debug('{}: Received handshake'.format(self.address))
+        try:
+            response = pack_handshake(client_handshake)
+        except DataMissing:
+            logging.warning('{}: Received unaccepted handshake'.format(self.address))
+            return False
+        else:
+            total_sent = self._send(response, timeout=10)
+            if total_sent == len(response):
+                self.state = Client.OPEN
+                logging.debug('{}: Handshake complete, client now in open state'.format(self.address))
+                return True
+            else:
+                logging.warning('{}: Handshake failed, {}/{} bytes of the response sent'.format(self.address,
+                                                                                                total_sent,
+                                                                                                len(response)))
+                return False
 
     def recv_all(self, size, chunk_size=2048):
         data = bytearray(size)
