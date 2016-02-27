@@ -30,9 +30,9 @@ class Client:
 
     def send_raw(self, msg, timeout=-1):
         total_sent = 0
+        msg_len = len(msg)
         if self.send_lock.acquire(timeout=timeout):
             try:
-                msg_len = len(msg)
                 while total_sent < msg_len:
                     sent = self.socket.send(msg[total_sent:])
                     if sent == 0:
@@ -41,10 +41,6 @@ class Client:
             finally:
                 self.send_lock.release()
         return total_sent
-
-    # def send_raw(self, msg, timeout=-1):
-    #     self._max_threads_obj.start_thread(target=self._send,
-    #                                        args=(msg, timeout))
 
     def do_handshake(self):
         """
@@ -111,24 +107,29 @@ class Client:
         return data
 
     def recv_frame(self):
-        frame_head = self.recv_all(2)
-        frame = read_frame_head(frame_head)
-        if frame.payload_len == 126:
-            payload_len = bytes2int(self.recv_all(2))
-        elif frame.payload_len == 127:
-            payload_len = bytes2int(self.recv_all(8))
-        else:
-            payload_len = frame.payload_len
-
-        if frame.mask:
-            frame.masking_key = self.recv_all(4)
-            frame.payload_masked = self.recv_all(payload_len)
-            frame.unmask_payload()
-        else:
-            frame.payload = self.recv_all(payload_len)
-
+        frame = Frame().recv_frame(self.recv_all)
         self._handle_frame(frame)
         return frame
+
+    # def recv_frame(self):
+    #     frame_head = self.recv_all(2)
+    #     frame = read_frame_head(frame_head)
+    #     if frame.payload_len == 126:
+    #         payload_len = bytes2int(self.recv_all(2))
+    #     elif frame.payload_len == 127:
+    #         payload_len = bytes2int(self.recv_all(8))
+    #     else:
+    #         payload_len = frame.payload_len
+    #
+    #     if frame.mask:
+    #         frame.masking_key = self.recv_all(4)
+    #         frame.payload_masked = self.recv_all(payload_len)
+    #         frame.unmask_payload()
+    #     else:
+    #         frame.payload = self.recv_all(payload_len)
+    #
+    #     self._handle_frame(frame)
+    #     return frame
 
     def _handle_frame(self, frame):
         if frame.fin == 0:
@@ -153,7 +154,7 @@ class Client:
                     self.close(status_code=frame.payload)
             elif frame.opcode == OpCode.PING:
                 pong_frame = Frame(opcode=OpCode.PONG,
-                                   payload=frame.payload).pack()
+                                   payload=frame.payload)
                 self.send_frame(pong_frame, 10)
 
     def _continuation_frame(self, frame):

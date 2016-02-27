@@ -17,8 +17,8 @@ def handle_websocket_frame(client, frame):
     frame.mask = 0
     print(client.address, ': ', frame.payload, ' Opcode: ', ewebsockets.OpCode.opcodes[frame.opcode])
     client.send_frame(frame)
-    print('Sending: ', frame.pack())
-    print('Opcode', frame.opcode, frame.payload_len)
+    # print('Sending: ', frame.pack())
+    # print('Opcode', frame.opcode, frame.payload_len)
     # client.close()
     return True
 

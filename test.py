@@ -15,7 +15,7 @@ root.addHandler(ch)
 
 def handle_websocket_frame(client, frame):
     print('Client: ', frame.payload,  frame.opcode)
-    client.send(frame.pack())
+    # client.send(frame.pack())
     return True
 
 

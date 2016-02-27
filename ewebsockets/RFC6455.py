@@ -105,7 +105,7 @@ class StatusCode:
 
 class Frame:
     def __init__(self, fin=1, rsv=(0,0,0), opcode=None, mask=0, payload_masked=None,
-                 payload_len=0, payload_len_ext=None, payload=b'', masking_key=b''):
+                 payload_len=None, payload_len_ext=None, payload=b'', masking_key=b''):
         self.fin = fin
         self.rsv = rsv
         self.opcode = opcode
@@ -155,6 +155,33 @@ class Frame:
         if new_key:
             self.masking_key = int2bytes(randint(0, 2**32-1), 4)
         self.payload_masked = masking_algorithm(self.payload, self.masking_key)
+
+    def recv_frame(self, recv_function):
+        header = recv_function(2)
+
+        self.fin = header[0] >> 7
+        self.rsv = (header[0] >> 6 & 0b00000001,
+                    header[0] >> 5 & 0b00000001,
+                    header[0] >> 4 & 0b00000001)
+        self.opcode = bytes(int2bytes(header[0] & 0b00001111, 1))
+        self.mask = header[1] >> 7
+        self.payload_len = header[1] & 0b01111111
+
+        if self.payload_len == 126:
+            payload_len = bytes2int(recv_function(2))
+        elif self.payload_len == 127:
+            payload_len = bytes2int(recv_function(8))
+        else:
+            payload_len = self.payload_len
+
+        if self.mask:
+            self.masking_key = recv_function(4)
+            self.payload_masked = recv_function(payload_len)
+            self.unmask_payload()
+        else:
+            self.payload = recv_function(payload_len)
+
+        return self
 
 
 guid = b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
