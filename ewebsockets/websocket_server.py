@@ -53,5 +53,11 @@ class Websocket:
     def start(self):
         self.server.start()
 
+    def stop(self):
+        for client in self.clients_list():
+            client.close()
+
+        self.server.stop()
+
     def clients_list(self):
         return list(self.clients.values())
