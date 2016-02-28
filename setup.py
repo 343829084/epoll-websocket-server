@@ -1,13 +1,14 @@
 #!/bin/env python3
 # from distutils.core import setup
 from setuptools import setup
-from loopfunction import __version__
+from ewebsockets import __version__
 import sys
 
 
 def readme():
     with open('README.rst') as f:
         return f.read()
+
 
 print('Current version: ', __version__)
 version = __version__.split('.')

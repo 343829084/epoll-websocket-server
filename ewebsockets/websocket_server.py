@@ -10,10 +10,12 @@ class Websocket:
     def __init__(self,
                  handle_new_connection=lambda client: True,
                  handle_websocket_frame=lambda client, frame: True,
+                 on_client_open=lambda client: True,
                  esockets_kwargs={}):
 
         self.handle_new_connection = handle_new_connection
         self.handle_websocket_frame = handle_websocket_frame
+        self.on_client_open = on_client_open
 
         kwargs = dict(esockets_kwargs)
         kwargs.update({'handle_incoming': self._handle_incoming})
@@ -36,7 +38,10 @@ class Websocket:
         """
         client_obj = self.clients[sock]
         if client_obj.state == Client.CONNECTING:
-            return client_obj.do_handshake()
+            handshake_success = client_obj.do_handshake()
+            if handshake_success:
+                self.on_client_open(client_obj)
+            return handshake_success
 
         elif client_obj.state == Client.OPEN or client_obj.state == Client.CLOSING:
             frame = client_obj.recv_frame()
