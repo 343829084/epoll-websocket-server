@@ -69,9 +69,14 @@ class Client:
         self.send_raw(frame.pack(), timeout)
 
     def send_text(self, text, timeout=-1, mask=0):
-        frame = Frame(payload=text.encode(),
-                      opcode=OpCode.TEXT,
-                      mask=mask)
+        if type(text) == str:
+            frame = Frame(payload=text.encode(),
+                          opcode=OpCode.TEXT,
+                          mask=mask)
+        else:
+            frame = Frame(payload=text,
+                          opcode=OpCode.TEXT,
+                          mask=mask)
         self.send_frame(frame, timeout)
 
     def send_binary(self, bytes, timeout=-1, mask=0):
@@ -148,6 +153,11 @@ class Client:
                 self.unfinished_frame = None
 
             elif frame.opcode == OpCode.CLOSE:
+                logging.debug(
+                    '{}: A close frame with status code {}({}) was received'.format(self.address,
+                                                                                    frame.payload,
+                                                                                    StatusCode.status_codes[frame.payload[0:2]])
+                )
                 self.close_frame_recd = True
                 self.close_lock.set()
                 if not self.close_frame_sent:
