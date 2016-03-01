@@ -4,7 +4,7 @@ from threading import Lock, Event
 from .exceptions import *
 from .RFC6455 import *
 import logging
-
+from json import JSONEncoder
 
 class Client:
     CONNECTING = 0
@@ -17,7 +17,11 @@ class Client:
                CLOSING: 'Closing',
                CLOSED: 'Closed'}
 
-    def __init__(self, sock, address, state=0):
+    def __init__(self, sock, address,
+                 on_open=lambda client: True,
+                 on_close=lambda client: True,
+                 state=0):
+
         self.socket = sock
 
         self.state = state
@@ -27,6 +31,9 @@ class Client:
         self.send_lock = Lock()
         self.close_lock = Event()
         self.unfinished_frame = None
+
+        self.on_open = on_open
+        self.on_close = on_close
 
     def send_raw(self, msg, timeout=-1):
         total_sent = 0
@@ -57,6 +64,7 @@ class Client:
             total_sent = self.send_raw(response, timeout=10)
             if total_sent == len(response):
                 self.state = Client.OPEN
+                self.on_open(self)
                 logging.debug('{}: Handshake complete, client now in open state'.format(self.address))
                 return True
             else:
@@ -84,6 +92,9 @@ class Client:
                       opcode=OpCode.BINARY,
                       mask=mask)
         self.send_frame(frame, timeout)
+
+    def send_json(self, json_obj, timeout=-1, mask=0):
+        self.send_text(JSONEncoder().encode(json_obj), timeout, mask)
 
     def recv_all(self, size, chunk_size=2048):
         data = bytearray(size)
@@ -115,26 +126,6 @@ class Client:
         frame = Frame().recv_frame(self.recv_all)
         self._handle_frame(frame)
         return frame
-
-    # def recv_frame(self):
-    #     frame_head = self.recv_all(2)
-    #     frame = read_frame_head(frame_head)
-    #     if frame.payload_len == 126:
-    #         payload_len = bytes2int(self.recv_all(2))
-    #     elif frame.payload_len == 127:
-    #         payload_len = bytes2int(self.recv_all(8))
-    #     else:
-    #         payload_len = frame.payload_len
-    #
-    #     if frame.mask:
-    #         frame.masking_key = self.recv_all(4)
-    #         frame.payload_masked = self.recv_all(payload_len)
-    #         frame.unmask_payload()
-    #     else:
-    #         frame.payload = self.recv_all(payload_len)
-    #
-    #     self._handle_frame(frame)
-    #     return frame
 
     def _handle_frame(self, frame):
         if frame.fin == 0:
@@ -174,21 +165,21 @@ class Client:
             logging.warning('{}: A continuation frame was received without getting the first frame.'.format(self.address))
 
     def close(self, status_code=StatusCode.NORMAL_CLOSE, timeout=10):
-        self.state = self.CLOSING
+        self.state = Client.CLOSING
         if not self.close_frame_sent:
             frame = Frame(opcode=OpCode.CLOSE,
                           payload=status_code)
             self.send_frame(frame)
             self.close_frame_sent = True
 
-        if not self.close_lock.wait(timeout=timeout):
-            print('TIMED OUT')
-
+        self.close_lock.wait(timeout=timeout)
         self.close_lock.clear()
+
         # logging.debug('Closing connection: {}'.format(self.address))
         # self.socket.shutdown(socket.SHUT_RDWR)
         # self.socket.close()
-        self.state = self.CLOSED
+        self.state = Client.CLOSED
+        self.on_close(self)
 
     def get_state(self):
         return self._states[self.state]

@@ -30,9 +30,13 @@ def handle_new_connection(client):
     print('Client connected')
     return True
 
+def on_client_open(client):
+    print('Client now in openstate')
+
 server = ewebsockets.Websocket(
     handle_new_connection=handle_new_connection,
     handle_websocket_frame=handle_websocket_frame,
+    on_client_open=on_client_open,
     esockets_kwargs={'max_subthreads': 10}
         # ,
         #              'host': 'localhost'}
@@ -41,6 +45,6 @@ server = ewebsockets.Websocket(
 
 server.start()
 print(server.server.host + ':' + str(server.server.port))
-# client = create_connection('ws://' + server.server.host + ':' + str(server.server.port))
-# client.send('hello\n', 1)
+client = create_connection('ws://' + server.server.host + ':' + str(server.server.port))
+client.send('hello\n', 1)
 
