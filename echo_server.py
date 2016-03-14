@@ -20,9 +20,6 @@ def handle_websocket_frame(client, frame):
     if frame.opcode == ewebsockets.OpCode.TEXT:
         for i in server.clients_list():
             i.send_frame(frame)
-    # print('Sending: ', frame.pack())
-    # print('Opcode', frame.opcode, frame.payload_len)
-    # client.close()
     return True
 
 
@@ -31,15 +28,16 @@ def handle_new_connection(client):
     return True
 
 def on_client_open(client):
-    print('Client now in openstate')
+    print('Client now in open state')
+
+def on_client_close(client):
+    print('Client now in closing state')
 
 server = ewebsockets.Websocket(
     handle_new_connection=handle_new_connection,
     handle_websocket_frame=handle_websocket_frame,
     on_client_open=on_client_open,
-    esockets_kwargs={'max_subthreads': 10}
-        # ,
-        #              'host': 'localhost'}
+    on_client_close=on_client_close
 )
 
 

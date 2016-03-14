@@ -102,6 +102,9 @@ class StatusCode:
         else:
             return False
 
+    @staticmethod
+    def get_int(status_code):
+        return int(status_code.hex(), 16)
 
 class Frame:
     def __init__(self, fin=1, rsv=(0,0,0), opcode=None, mask=0, payload_masked=None,

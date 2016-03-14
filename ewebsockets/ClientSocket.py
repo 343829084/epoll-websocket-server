@@ -144,10 +144,11 @@ class Client:
                 self.unfinished_frame = None
 
             elif frame.opcode == OpCode.CLOSE:
+                print(frame.payload)
                 logging.debug(
-                    '{}: A close frame with status code {}({}) was received'.format(self.address,
-                                                                                    frame.payload,
-                                                                                    StatusCode.status_codes[frame.payload[0:2]])
+                    '{}: Close frame {} ({}) {}'.format(
+                        self.address, StatusCode.get_int(frame.payload[0:2]),
+                        StatusCode.status_codes[frame.payload[0:2]], frame.payload[2:].decode('utf-8'))
                 )
                 self.close_frame_recd = True
                 self.close_lock.set()
