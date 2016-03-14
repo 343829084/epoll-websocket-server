@@ -151,8 +151,8 @@ class Client:
                 )
                 self.close_frame_recd = True
                 self.close_lock.set()
-                if not self.close_frame_sent:
-                    self.close(status_code=frame.payload)
+                self.close(status_code=frame.payload)
+
             elif frame.opcode == OpCode.PING:
                 pong_frame = Frame(opcode=OpCode.PONG,
                                    payload=frame.payload)
@@ -164,11 +164,13 @@ class Client:
         else:
             logging.warning('{}: A continuation frame was received without getting the first frame.'.format(self.address))
 
-    def close(self, status_code=StatusCode.NORMAL_CLOSE, timeout=10):
+    def close(self, status_code=StatusCode.NORMAL_CLOSE, reason=b'', timeout=10):
+        if type(reason) == str:
+            reason = reason.encode()
         self.state = Client.CLOSING
         if not self.close_frame_sent:
             frame = Frame(opcode=OpCode.CLOSE,
-                          payload=status_code)
+                          payload=status_code + reason)
             self.send_frame(frame)
             self.close_frame_sent = True
 

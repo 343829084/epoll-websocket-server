@@ -49,9 +49,18 @@ class Websocket:
             return client_obj.do_handshake()
         elif client_obj.state == Client.OPEN or client_obj.state == Client.CLOSING:
             frame = client_obj.recv_frame()
+            if not OpCode.is_valid(frame.opcode):
+                self.close_connection(sock)
+                logging.info('{}: Closing connection, invalid opcode: {}'.format(client_obj.address, frame.opcode))
+                return False
+
             if frame.fin == 1:
                 # Let the user handle a finished frame
-                self.handle_websocket_frame(client_obj, frame)
+                if not self.handle_websocket_frame(client_obj, frame):
+                    # if handle_websocket_frame returns false send close frame and emedietely disconnect user
+                    logging.info('{}: Closing connection because handle_websocket_frame returned false'.format(client_obj.address))
+                    self.close_connection(sock)
+                    return False
 
             if frame.opcode == OpCode.CLOSE:
                 del self.clients[sock]
@@ -64,9 +73,14 @@ class Websocket:
 
     def stop(self):
         for client in self.clients_list():
-            client.close()
+            self.close_connection(client)
 
         self.server.stop()
 
     def clients_list(self):
         return list(self.clients.values())
+
+    def close_connection(self, client, status_code=StatusCode.PROTOCOL_ERROR, reason=b''):
+        client.close(status_code=status_code, timeout=0, reason=reason)
+        self.server.disconnect(client.socket)
+        del self.clients[client.socket]
