@@ -74,7 +74,7 @@ class Client:
                 return False
 
     def send_frame(self, frame, timeout=-1):
-        self.send_raw(frame.pack(), timeout)
+        return self.send_raw(frame.pack(), timeout)
 
     def send_text(self, text, timeout=-1, mask=0):
         if type(text) == str:
@@ -85,7 +85,7 @@ class Client:
             frame = Frame(payload=text,
                           opcode=OpCode.TEXT,
                           mask=mask)
-        self.send_frame(frame, timeout)
+        return self.send_frame(frame, timeout)
 
     def send_binary(self, bytes, timeout=-1, mask=0):
         frame = Frame(payload=bytes,
@@ -146,7 +146,7 @@ class Client:
             elif frame.opcode == OpCode.CLOSE:
                 print(frame.payload)
                 logging.debug(
-                    '{}: Close frame {} ({}) {}'.format(
+                    '{}: Close frame recd {} ({}) {}'.format(
                         self.address, StatusCode.get_int(frame.payload[0:2]),
                         StatusCode.status_codes[frame.payload[0:2]], frame.payload[2:].decode('utf-8'))
                 )
@@ -165,7 +165,7 @@ class Client:
         else:
             logging.warning('{}: A continuation frame was received without getting the first frame.'.format(self.address))
 
-    def close(self, status_code=StatusCode.NORMAL_CLOSE, reason=b'', timeout=10):
+    def close(self, status_code=StatusCode.NORMAL_CLOSE, reason=b'', timeout=3):
         if type(reason) == str:
             reason = reason.encode()
         self.state = Client.CLOSING
@@ -174,6 +174,10 @@ class Client:
                           payload=status_code + reason)
             self.send_frame(frame)
             self.close_frame_sent = True
+            logging.debug('{}: Close frame sent {} ({}) {}'.format(
+                self.address, StatusCode.get_int(status_code),
+                StatusCode.status_codes[status_code], reason
+            ))
 
         self.close_lock.wait(timeout=timeout)
         self.close_lock.clear()

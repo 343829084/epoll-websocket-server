@@ -81,6 +81,16 @@ class Websocket:
         return list(self.clients.values())
 
     def close_connection(self, client, status_code=StatusCode.PROTOCOL_ERROR, reason=b''):
-        client.close(status_code=status_code, timeout=0, reason=reason)
-        self.server.disconnect(client.socket)
-        del self.clients[client.socket]
+        try:
+            client.close(status_code=status_code, timeout=0, reason=reason)
+        finally:
+            self.server.disconnect(client.socket)
+            del self.clients[client.socket]
+
+    def send_text(self, client, text, timeout=-1, mask=0):
+        try:
+            client.send_text(text, timeout, mask)
+        except (OSError, BrokenPipeError, ClientDisconnect):
+            self.close_connection(client, StatusCode.ENDP_GOING_AWAY, b'Broken pipe')
+            logging.error('{}: Broken pipe'.format(client.address))
+
