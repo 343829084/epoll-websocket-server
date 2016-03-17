@@ -6,36 +6,42 @@ from .RFC6455 import *
 import logging
 from json import JSONEncoder
 from esockets import ConnectionBroken
+import esockets
 
-class Client:
+
+class Client(esockets.Client):
     CONNECTING = 0
     OPEN = 1
     CLOSING = 2
     CLOSED = 3
-
     _states = {CONNECTING: 'Connecting',
                OPEN: 'Open',
                CLOSING: 'Closing',
                CLOSED: 'Closed'}
 
-    def __init__(self, sock,
-                 on_open=lambda client: True,
-                 state=0):
-
-        self.socket = sock  # the client from esockets
-
-        self.state = state
-        # self.address = esockets_client.address
+    def __init__(self, sock, address):
+        esockets.Client.__init__(self, sock, address)
+        self.state = Client.CONNECTING
         self.close_frame_sent = False
-        self.close_frame_recd = False
-        self.send_lock = Lock()
-        self.close_lock = Event()
-        self.unfinished_frame = None
 
-        self.on_open = on_open
+    # def __init__(self, sock,
+    #              on_open=lambda client: True,
+    #              state=0):
+    #
+    #     self.socket = sock  # the client from esockets
+    #
+    #     self.state = state
+    #     # self.address = esockets_client.address
+    #     self.close_frame_sent = False
+    #     self.close_frame_recd = False
+    #     self.send_lock = Lock()
+    #     self.close_lock = Event()
+    #     self.unfinished_frame = None
+    #
+    #     self.on_open = on_open
 
-    def address(self):
-        return self.socket.address
+    # def address(self):
+    #     return self.socket.address
 
     # def send_raw(self, msg, timeout=-1):
     #     total_sent = 0
@@ -50,6 +56,12 @@ class Client:
     #         finally:
     #             self.send_lock.release()
     #     return total_sent
+
+    def handle_message(self):
+
+
+    def handle_payload(self):
+
 
     def do_handshake(self):
         """
