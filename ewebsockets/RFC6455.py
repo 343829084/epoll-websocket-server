@@ -107,17 +107,21 @@ class StatusCode:
         return int(status_code.hex(), 16)
 
 class Frame:
-    def __init__(self, fin=1, rsv=(0,0,0), opcode=None, mask=0, payload_masked=None,
-                 payload_len=None, payload_len_ext=None, payload=b'', masking_key=b''):
+    def __init__(self, fin=1, rsv=(0,0,0), opcode=None, mask=0,
+                 payload=None, client=None):
         self.fin = fin
         self.rsv = rsv
         self.opcode = opcode
         self.mask = mask
-        self.payload_len = payload_len
-        self.payload_len_ext = payload_len_ext
-        self.masking_key = masking_key
         self.payload = payload
-        self.payload_masked = payload_masked
+        self.client = client
+
+        self.payload_length = None
+        self.masking_key = None
+
+        self.payload_recd = 0
+        self.header_recd = False
+        self.length_recd = False
 
     def pack(self):
 
@@ -130,61 +134,122 @@ class Frame:
 
         frame_head[1] = self.mask << 7
 
-        payload_len = len(self.payload)
-        if payload_len < 126:
-            payload_len_ext = bytearray(0)
-            frame_head[1] |= payload_len
-        elif payload_len < 65536:
-            payload_len_ext = int2bytes(payload_len, 2)
+        payload_length = len(self.payload)
+        if payload_length < 126:
+            payload_length_ext = bytearray(0)
+            frame_head[1] |= payload_length
+        elif payload_length < 65536:
+            payload_length_ext = int2bytes(payload_length, 2)
             frame_head[1] |= 126
-        elif payload_len < 18446744073709551616:
-            payload_len_ext = int2bytes(payload_len, 8)
+        elif payload_length < 18446744073709551616:
+            payload_length_ext = int2bytes(payload_length, 8)
             frame_head[1] |= 127
         else:
             raise InvalidFrame('Payload too large')
 
+        payload = self.payload
         if self.mask:
-            if self.payload_masked is None:
-                self.update_masking()
-            return bytes(frame_head + payload_len_ext + self.masking_key or bytearray(0) + self.payload_masked)
+            self.get_masking_key()
+            payload = masking_algorithm(self.payload, self.masking_key)
 
-        return bytes(frame_head + payload_len_ext + self.payload)
+        return bytes(frame_head + payload_length_ext + (self.masking_key or bytearray(0)) + payload)
 
-    def unmask_payload(self):
-        self.payload = masking_algorithm(self.payload_masked, self.masking_key)
-        return self.payload
+        # return bytes(frame_head + payload_length_ext + self.payload)
 
-    def update_masking(self, new_key=True):
-        if new_key:
-            self.masking_key = int2bytes(randint(0, 2**32-1), 4)
-        self.payload_masked = masking_algorithm(self.payload, self.masking_key)
+    # def unmask_payload(self):
+    #     self.payload = masking_algorithm(self.payload_masked, self.masking_key)
+    #     return self.payload
+    #
+    # def update_masking(self, new_key=True):
+    #     if new_key:
+    #         self.masking_key = int2bytes(randint(0, 2**32-1), 4)
+    #     self.payload_masked = masking_algorithm(self.payload, self.masking_key)
 
-    def recv_frame(self, recv_function):
-        header = recv_function(2)
+    def get_masking_key(self):
+        self.masking_key = int2bytes(randint(0, 2**32-1), 4)
+        return self.masking_key
 
+    def recv_header(self):
+        """Receives the header and payload length
+        """
+        header = self.client.recv(1)
         self.fin = header[0] >> 7
         self.rsv = (header[0] >> 6 & 0b00000001,
                     header[0] >> 5 & 0b00000001,
                     header[0] >> 4 & 0b00000001)
         self.opcode = bytes(int2bytes(header[0] & 0b00001111, 1))
-        self.mask = header[1] >> 7
-        self.payload_len = header[1] & 0b01111111
+        self.header_recd = True
 
-        if self.payload_len == 126:
-            payload_len = bytes2int(recv_function(2))
-        elif self.payload_len == 127:
-            payload_len = bytes2int(recv_function(8))
+    def recv_length(self):
+        if not self.header_recd:
+            self.recv_header()
+
+        header2 = self.client.recv(1)
+        self.mask = header2[0] >> 7
+        self.payload_length = header2[0] & 0b01111111
+
+        if self.payload_length == 126:
+            self.payload_length = bytes2int(self.client.recv(2))
+        elif self.payload_length == 127:
+            self.payload_length = bytes2int(self.client.recv(8))
         else:
-            payload_len = self.payload_len
+            self.payload_length = self.payload_length
+
+        self.length_recd = True
+
+    def recv_payload(self, size):
+        if not self.length_recd:
+            self.recv_length()
+        if size > self.payload_length - self.payload_recd:
+            raise ValueError('Tried receiving more payload than the payload length')
+
+        if self.mask and self.masking_key is None:
+            self.masking_key = self.client.recv(4)
+
+        data = self.client.recv(size)
+        recd = len(data)
 
         if self.mask:
-            self.masking_key = recv_function(4)
-            self.payload_masked = recv_function(payload_len)
-            self.unmask_payload()
-        else:
-            self.payload = recv_function(payload_len)
+            result = bytearray(recd)
+            for i in range(self.payload_recd, self.payload_recd + recd):
+                result[i - self.payload_recd] = data[i - self.payload_recd] ^ self.masking_key[i % 4]
+            data = bytes(result)
 
-        return self
+        self.payload_recd += recd
+        if self.payload is None:
+            self.payload = data
+        else:
+            self.payload += data
+
+        return data
+
+    # def recv_frame(self, recv_function):
+        # header = recv_function(2)
+        #
+        # self.fin = header[0] >> 7
+        # self.rsv = (header[0] >> 6 & 0b00000001,
+        #             header[0] >> 5 & 0b00000001,
+        #             header[0] >> 4 & 0b00000001)
+        # self.opcode = bytes(int2bytes(header[0] & 0b00001111, 1))
+        # self.mask = header[1] >> 7
+        # self.payload_length = header[1] & 0b01111111
+        #
+        # if self.payload_length == 126:
+        #     payload_length = bytes2int(recv_function(2))
+        # elif self.payload_length == 127:
+        #     payload_length = bytes2int(recv_function(8))
+        # else:
+        #     payload_length = self.payload_length
+        #
+        #
+        # if self.mask:
+        #     self.masking_key = recv_function(4)
+        #     self.payload_masked = recv_function(self.payload_length)
+        #     self.unmask_payload()
+        # else:
+        #     self.payload = recv_function(self.payload_len)
+        #
+        # return self
 
 
 guid = b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
@@ -215,7 +280,7 @@ def read_frame_head(frame_head):
              frame_head[0] >> 4 & 0b00000001),
         opcode=bytes(int2bytes(frame_head[0] & 0b00001111, 1)),
         mask=frame_head[1] >> 7,
-        payload_len=frame_head[1] & 0b01111111
+        payload_length=frame_head[1] & 0b01111111
     )
     # frame.fin = frame_head[0] >> 7
     # frame.rsv = (frame_head[0] >> 6 & 0b00000001,
@@ -228,5 +293,5 @@ def read_frame_head(frame_head):
         raise FrameError('Opcode: {} is not recognized'.format(frame.opcode))
 
     # frame.mask = frame_head[1] >> 7
-    # frame.payload_len = frame_head[1] & 0b01111111
+    # frame.payload_length = frame_head[1] & 0b01111111
     return frame
