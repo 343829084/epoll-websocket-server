@@ -120,6 +120,7 @@ class Frame:
         self.masking_key = None
 
         self.payload_recd = 0
+        self.payload_left = None
         self.header_recd = False
         self.length_recd = False
 
@@ -173,38 +174,60 @@ class Frame:
         """Receives the header and payload length
         """
         header = self.client.recv(1)
+        if len(header) != 1:
+            return b'Bytes missing'
+
         self.fin = header[0] >> 7
         self.rsv = (header[0] >> 6 & 0b00000001,
                     header[0] >> 5 & 0b00000001,
                     header[0] >> 4 & 0b00000001)
         self.opcode = bytes(int2bytes(header[0] & 0b00001111, 1))
+        if self.opcode not in OpCode.opcodes:
+            return b'Invalid opcode'
+
         self.header_recd = True
 
     def recv_length(self):
         if not self.header_recd:
-            self.recv_header()
+            raise RuntimeError("Can't receive the frame length w/o first receiving the header")
 
         header2 = self.client.recv(1)
+        if len(header2) != 1:
+            return b'Bytes missing'
+
         self.mask = header2[0] >> 7
-        self.payload_length = header2[0] & 0b01111111
+        payload_length = header2[0] & 0b01111111
 
-        if self.payload_length == 126:
-            self.payload_length = bytes2int(self.client.recv(2))
-        elif self.payload_length == 127:
-            self.payload_length = bytes2int(self.client.recv(8))
+        if payload_length == 126:
+            payload_ext = self.client.recv(2)
+            if len(payload_ext) != 2:
+                return b'Bytes missing'
+            self.payload_length = bytes2int(payload_ext)
+        elif payload_length == 127:
+            payload_ext = self.client.recv(8)
+            if len(payload_ext) != 8:
+                return b'Bytes missing'
+            self.payload_length = bytes2int(payload_ext)
         else:
-            self.payload_length = self.payload_length
+            self.payload_length = payload_length
 
+        self.payload_left = self.payload_length
         self.length_recd = True
 
     def recv_payload(self, size):
-        if not self.length_recd:
-            self.recv_length()
-        if size > self.payload_length - self.payload_recd:
-            raise ValueError('Tried receiving more payload than the payload length')
+        if not self.length_recd or not self.header_recd:
+            raise RuntimeError('Must first receive header and length')
+
+        if size == 0:
+            # Because if recv(0) is called the socket server will indicate that as a socket close
+            return b''
+        # if size > self.payload_left:
+        #     raise RuntimeError('Tried receiving more than the payload length')
 
         if self.mask and self.masking_key is None:
             self.masking_key = self.client.recv(4)
+            if len(self.masking_key) != 4:
+                return b'Masking key bytes missing'
 
         data = self.client.recv(size)
         recd = len(data)
@@ -216,10 +239,14 @@ class Frame:
             data = bytes(result)
 
         self.payload_recd += recd
+        self.payload_left -= recd
+
         if self.payload is None:
             self.payload = data
         else:
             self.payload += data
+
+
 
         return data
 
@@ -256,12 +283,15 @@ guid = b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
 
 def pack_handshake(client_handshake):
+    """Returns None on invalid handshake else returns response hanshake
+    """
     key = None
     for line in client_handshake.splitlines():
         if b'Sec-WebSocket-Key:' in line:
             key = line.split(b': ')[1]
     if key is None:
-        raise DataMissing('Did not find websocket key in handshake')
+        return
+        # raise DataMissing('Did not find websocket key in handshake')
 
     handshake = b'HTTP/1.1 101 Switching Protocols\r\n'
     handshake += b'Upgrade: websocket\r\n'
